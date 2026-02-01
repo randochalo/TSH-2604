@@ -33,6 +33,17 @@ import { accountsRouter } from './routes/accounts'
 import { journalEntriesRouter } from './routes/journal-entries'
 import { fixedAssetsRouter } from './routes/fixed-assets'
 import { documentsRouter } from './routes/documents'
+import { creditControlRouter } from './routes/credit-control'
+import { reportsRouter } from './routes/reports'
+import { tendersRouter } from './routes/tenders'
+
+// WMS Routes
+import { pickingRouter } from './routes/picking'
+import { packingRouter } from './routes/packing'
+import { returnsRouter } from './routes/returns'
+
+// FFS Routes
+import { ratesRouter } from './routes/rates'
 
 dotenv.config()
 
@@ -55,11 +66,16 @@ app.use('/api/drivers', driversRouter)
 app.use('/api/shipments', shipmentsRouter)
 app.use('/api/containers', containersRouter)
 app.use('/api/customs-entries', customsEntriesRouter)
+app.use('/api/rates', ratesRouter)
+app.use('/api/tenders', tendersRouter)
 
 // WMS Routes
 app.use('/api/warehouses', warehousesRouter)
 app.use('/api/inventory', inventoryRouter)
 app.use('/api/locations', locationsRouter)
+app.use('/api/picking', pickingRouter)
+app.use('/api/packing', packingRouter)
+app.use('/api/returns', returnsRouter)
 
 // TMS Routes
 app.use('/api/yard', yardRouter)
@@ -77,6 +93,10 @@ app.use('/api/fixed-assets', fixedAssetsRouter)
 
 // Document Management
 app.use('/api/documents', documentsRouter)
+
+// FMS Additional Routes
+app.use('/api/credit-control', creditControlRouter)
+app.use('/api/reports', reportsRouter)
 
 // Error handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
