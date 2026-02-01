@@ -95,4 +95,86 @@ router.patch('/:id', async (req, res) => {
   }
 })
 
+// GET /api/customers/:id/credit - Get customer credit information
+router.get('/:id/credit', async (req, res) => {
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { id: req.params.id },
+      include: {
+        invoices: {
+          where: {
+            status: { in: ['SENT', 'PARTIAL', 'OVERDUE'] },
+            type: 'SALES',
+          },
+          select: {
+            id: true,
+            invoiceNo: true,
+            balance: true,
+            dueDate: true,
+            status: true,
+          }
+        }
+      }
+    })
+
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' })
+    }
+
+    const now = new Date()
+    const overdueInvoices = customer.invoices.filter(inv => 
+      inv.dueDate < now && ['SENT', 'PARTIAL', 'OVERDUE'].includes(inv.status)
+    )
+
+    const totalOutstanding = customer.invoices.reduce((sum, inv) => sum + inv.balance, 0)
+    const totalOverdue = overdueInvoices.reduce((sum, inv) => sum + inv.balance, 0)
+
+    res.json({
+      customerId: customer.id,
+      customerName: customer.name,
+      creditStatus: customer.creditStatus,
+      creditLimit: customer.creditLimit,
+      creditDays: customer.creditDays,
+      currentBalance: totalOutstanding,
+      availableCredit: customer.creditLimit - totalOutstanding,
+      totalOverdue,
+      overdueInvoices: overdueInvoices.length,
+      invoiceSummary: {
+        total: customer.invoices.length,
+        overdue: overdueInvoices.length,
+      },
+      overdueInvoiceDetails: overdueInvoices.map(inv => ({
+        invoiceNo: inv.invoiceNo,
+        balance: inv.balance,
+        dueDate: inv.dueDate,
+        daysOverdue: Math.floor((now.getTime() - new Date(inv.dueDate).getTime()) / (1000 * 60 * 60 * 24))
+      }))
+    })
+  } catch (error) {
+    console.error('Error fetching customer credit:', error)
+    res.status(500).json({ error: 'Failed to fetch customer credit info' })
+  }
+})
+
+// POST /api/customers/:id/update-credit-status - Auto-update credit status
+router.post('/:id/update-credit-status', async (req, res) => {
+  try {
+    const { updateCustomerCreditStatus } = await import('../middleware/creditCheck')
+    await updateCustomerCreditStatus(req.params.id)
+    
+    const customer = await prisma.customer.findUnique({
+      where: { id: req.params.id },
+      select: { creditStatus: true }
+    })
+    
+    res.json({ 
+      success: true, 
+      creditStatus: customer?.creditStatus 
+    })
+  } catch (error) {
+    console.error('Error updating credit status:', error)
+    res.status(500).json({ error: 'Failed to update credit status' })
+  }
+})
+
 export { router as customersRouter }

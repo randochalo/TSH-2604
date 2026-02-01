@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { prisma } from '@logisticspro/database'
+import { creditCheck } from '../middleware/creditCheck'
 
 const router = Router()
 
@@ -63,28 +64,37 @@ router.get('/:id', async (req, res) => {
   }
 })
 
-// POST /api/shipments - Create new shipment
-router.post('/', async (req, res) => {
-  try {
-    const shipmentNo = `SHP-${Date.now().toString(36).toUpperCase()}`
-    const shipment = await prisma.shipment.create({
-      data: {
-        shipmentNo,
-        ...req.body,
-      },
-      include: {
-        shipper: true,
-        consignee: true,
-        carrier: true,
-        containers: true,
-      },
-    })
-    res.status(201).json(shipment)
-  } catch (error) {
-    console.error('Error creating shipment:', error)
-    res.status(500).json({ error: 'Failed to create shipment' })
+// POST /api/shipments - Create new shipment (with credit check)
+router.post('/',
+  creditCheck({
+    entityType: 'shipment',
+    getCustomerId: (req) => req.body.shipperId
+  }),
+  async (req, res) => {
+    try {
+      const shipmentNo = `SHP-${Date.now().toString(36).toUpperCase()}`
+      const shipment = await prisma.shipment.create({
+        data: {
+          shipmentNo,
+          ...req.body,
+        },
+        include: {
+          shipper: true,
+          consignee: true,
+          carrier: true,
+          containers: true,
+        },
+      })
+      res.status(201).json({
+        ...shipment,
+        creditInfo: (req as any).creditInfo
+      })
+    } catch (error) {
+      console.error('Error creating shipment:', error)
+      res.status(500).json({ error: 'Failed to create shipment' })
+    }
   }
-})
+)
 
 // PATCH /api/shipments/:id - Update shipment
 router.patch('/:id', async (req, res) => {

@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { prisma } from '@logisticspro/database'
+import { creditCheck } from '../middleware/creditCheck'
 
 const router = Router()
 
@@ -45,20 +46,29 @@ router.get('/:id', async (req, res) => {
   }
 })
 
-// POST /api/jobs - Create new job
-router.post('/', async (req, res) => {
-  try {
-    const job = await prisma.haulageJob.create({
-      data: {
-        jobNo: `JOB-${Date.now()}`,
-        ...req.body,
-      },
-    })
-    res.status(201).json(job)
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to create job' })
+// POST /api/jobs - Create new job (with credit check)
+router.post('/', 
+  creditCheck({
+    entityType: 'job',
+    getCustomerId: (req) => req.body.customerId
+  }),
+  async (req, res) => {
+    try {
+      const job = await prisma.haulageJob.create({
+        data: {
+          jobNo: `JOB-${Date.now()}`,
+          ...req.body,
+        },
+      })
+      res.status(201).json({
+        ...job,
+        creditInfo: (req as any).creditInfo
+      })
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to create job' })
+    }
   }
-})
+)
 
 // PATCH /api/jobs/:id - Update job
 router.patch('/:id', async (req, res) => {

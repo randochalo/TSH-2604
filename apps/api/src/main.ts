@@ -32,6 +32,7 @@ import { paymentsRouter } from './routes/payments'
 import { accountsRouter } from './routes/accounts'
 import { journalEntriesRouter } from './routes/journal-entries'
 import { fixedAssetsRouter } from './routes/fixed-assets'
+import { documentsRouter } from './routes/documents'
 
 dotenv.config()
 
@@ -73,6 +74,9 @@ app.use('/api/payments', paymentsRouter)
 app.use('/api/accounts', accountsRouter)
 app.use('/api/journal-entries', journalEntriesRouter)
 app.use('/api/fixed-assets', fixedAssetsRouter)
+
+// Document Management
+app.use('/api/documents', documentsRouter)
 
 // Error handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

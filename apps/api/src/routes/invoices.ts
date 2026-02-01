@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { prisma } from '@logisticspro/database'
+import { creditCheck } from '../middleware/creditCheck'
 
 const router = Router()
 
@@ -60,42 +61,64 @@ router.get('/:id', async (req, res) => {
   }
 })
 
-// POST /api/invoices - Create new invoice
-router.post('/', async (req, res) => {
-  try {
-    const { items, ...invoiceData } = req.body
-    const invoiceNo = `INV-${Date.now().toString(36).toUpperCase()}`
-    
-    // Calculate totals
-    const subtotal = items.reduce((sum: number, item: any) => sum + item.amount, 0)
-    const taxAmount = items.reduce((sum: number, item: any) => sum + (item.taxAmount || 0), 0)
-    const total = subtotal + taxAmount
-    const balance = total
+// POST /api/invoices - Create new invoice (with credit check for AR invoices)
+router.post('/', 
+  async (req, res, next) => {
+    // Only check credit for AR invoices (SALES type) with customer
+    if (req.body.type === 'SALES' && req.body.customerId) {
+      return creditCheck({
+        entityType: 'invoice',
+        getCustomerId: (req) => req.body.customerId
+      })(req, res, next)
+    }
+    next()
+  },
+  async (req, res) => {
+    try {
+      const { items, ...invoiceData } = req.body
+      const invoiceNo = `INV-${Date.now().toString(36).toUpperCase()}`
+      
+      // Calculate totals
+      const subtotal = items.reduce((sum: number, item: any) => sum + item.amount, 0)
+      const taxAmount = items.reduce((sum: number, item: any) => sum + (item.taxAmount || 0), 0)
+      const total = subtotal + taxAmount
+      const balance = total
 
-    const invoice = await prisma.invoice.create({
-      data: {
-        invoiceNo,
-        subtotal,
-        taxAmount,
-        total,
-        balance,
-        ...invoiceData,
-        items: {
-          create: items,
+      const invoice = await prisma.invoice.create({
+        data: {
+          invoiceNo,
+          subtotal,
+          taxAmount,
+          total,
+          balance,
+          ...invoiceData,
+          items: {
+            create: items,
+          },
         },
-      },
-      include: {
-        customer: true,
-        vendor: true,
-        items: true,
-      },
-    })
-    res.status(201).json(invoice)
-  } catch (error) {
-    console.error('Error creating invoice:', error)
-    res.status(500).json({ error: 'Failed to create invoice' })
+        include: {
+          customer: true,
+          vendor: true,
+          items: true,
+        },
+      })
+
+      // Update customer credit status after creating invoice
+      if (invoiceData.customerId) {
+        const { updateCustomerCreditStatus } = await import('../middleware/creditCheck')
+        await updateCustomerCreditStatus(invoiceData.customerId)
+      }
+
+      res.status(201).json({
+        ...invoice,
+        creditInfo: (req as any).creditInfo
+      })
+    } catch (error) {
+      console.error('Error creating invoice:', error)
+      res.status(500).json({ error: 'Failed to create invoice' })
+    }
   }
-})
+)
 
 // PATCH /api/invoices/:id - Update invoice
 router.patch('/:id', async (req, res) => {
