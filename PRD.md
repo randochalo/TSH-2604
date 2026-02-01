@@ -1997,191 +1997,321 @@ npm run dev
 # - Redis: localhost:6379
 ```
 
-### 13.2 Docker Deployment
+### 13.2 Railway Deployment (Recommended)
 
-#### Production Docker Compose
+**Railway is the primary deployment target** for the LogisticsPro application, offering:
+- Zero-config deployments from Git
+- Automatic PostgreSQL and Redis provisioning
+- Built-in environment variable management
+- Automatic HTTPS and custom domains
+- CI/CD integration with GitHub
+- Usage-based pricing with generous free tier
 
-```yaml
-version: '3.8'
+#### Prerequisites
 
-services:
-  web:
-    image: logisticspro/web:latest
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - NEXTAUTH_URL=${NEXTAUTH_URL}
-      - API_URL=http://api:3001
-    ports:
-      - "3000:3000"
-    depends_on:
-      - api
-      - postgres
-      - redis
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+- Railway account (sign up at [railway.app](https://railway.app))
+- Railway CLI: `npm install -g @railway/cli`
+- Git repository hosted on GitHub/GitLab
 
-  api:
-    image: logisticspro/api:latest
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - JWT_SECRET=${JWT_SECRET}
-      - PORT=3001
-    ports:
-      - "3001:3001"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+#### Project Structure for Railway
 
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_USER=${DB_USER:-postgres}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=${DB_NAME:-logisticspro}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./backups:/backups
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-      - uploads:/var/www/uploads:ro
-    depends_on:
-      - web
-      - api
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
-  redis_data:
-  uploads:
+```
+logisticspro/
+├── apps/
+│   ├── web/                    # Next.js frontend
+│   │   ├── package.json
+│   │   └── ...
+│   └── api/                    # Express API
+│       ├── package.json
+│       ├── Procfile            # Railway process definition
+│       └── ...
+├── packages/
+│   └── database/
+│       └── prisma/
+│           └── schema.prisma
+├── railway.json                # Railway configuration (optional)
+├── package.json                # Root workspace
+└── ...
 ```
 
-#### Build and Deploy
+#### Step 1: Initial Railway Setup
 
 ```bash
-# Build production images
-docker-compose -f docker-compose.prod.yml build
-
-# Push to registry
-docker-compose -f docker-compose.prod.yml push
-
-# Deploy on server
-docker-compose -f docker-compose.prod.yml up -d
-
-# View logs
-docker-compose -f docker-compose.prod.yml logs -f
-
-# Scale API instances
-docker-compose -f docker-compose.prod.yml up -d --scale api=3
-```
-
-### 13.3 Railway Deployment
-
-Railway provides the simplest deployment path for this application.
-
-```bash
-# 1. Install Railway CLI
-npm install -g @railway/cli
-
-# 2. Login and initialize
+# Login to Railway
 railway login
+
+# Initialize project (run from project root)
 railway init
 
-# 3. Add PostgreSQL and Redis plugins
+# Select:
+# - "Create a new project" or select existing
+# - Project name: "logisticspro" (or your preferred name)
+```
+
+#### Step 2: Provision Databases
+
+```bash
+# Add PostgreSQL (automatically sets DATABASE_URL)
 railway add --database postgres
+
+# Add Redis (automatically sets REDIS_URL)
 railway add --database redis
 
-# 4. Configure environment variables
+# Verify services
+railway status
+```
+
+**Railway automatically:**
+- Creates and manages PostgreSQL 15 instance
+- Creates and manages Redis 7 instance
+- Injects `DATABASE_URL` and `REDIS_URL` environment variables
+- Handles backups and connection pooling
+
+#### Step 3: Configure Services
+
+Create `apps/api/Procfile` for the API service:
+
+```
+web: cd packages/database && npx prisma migrate deploy && cd ../../apps/api && node dist/index.js
+```
+
+Create `railway.json` in project root (optional but recommended):
+
+```json
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "npm run build"
+  },
+  "deploy": {
+    "startCommand": "npm start",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 100,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+```
+
+Configure API service as separate deployment:
+
+```bash
+# Create API service from same repo
+railway service create api
+
+# Set API service build command
+railway service update api --build="cd apps/api && npm install && npm run build"
+
+# Set API service start command
+railway service update api --start="cd apps/api && npm start"
+```
+
+#### Step 4: Environment Variables
+
+```bash
+# Generate secrets
+NEXTAUTH_SECRET=$(openssl rand -base64 32)
+JWT_SECRET=$(openssl rand -base64 32)
+
+# Set variables for all services (shared)
 railway variables set \
   NODE_ENV=production \
-  NEXTAUTH_SECRET=$(openssl rand -base64 32) \
-  NEXTAUTH_URL=https://your-app.up.railway.app \
-  JWT_SECRET=$(openssl rand -base64 32)
+  LOG_LEVEL=info
 
-# Variables are automatically injected:
-# - DATABASE_URL (from Postgres plugin)
-# - REDIS_URL (from Redis plugin)
+# Set Web service specific variables
+railway variables -s web set \
+  NEXTAUTH_SECRET="$NEXTAUTH_SECRET" \
+  NEXTAUTH_URL="https://your-app.up.railway.app" \
+  API_URL="https://api-your-app.up.railway.app"
 
-# 5. Deploy
+# Set API service specific variables
+railway variables -s api set \
+  JWT_SECRET="$JWT_SECRET" \
+  PORT=3001
+
+# Verify variables
+railway variables
+railway variables -s web
+railway variables -s api
+```
+
+**Railway Environment Variables Reference:**
+
+| Variable | Service | Source | Description |
+|----------|---------|--------|-------------|
+| `DATABASE_URL` | All | Auto (Postgres plugin) | PostgreSQL connection string |
+| `REDIS_URL` | All | Auto (Redis plugin) | Redis connection string |
+| `RAILWAY_STATIC_URL` | Web | Auto | Static asset URL |
+| `RAILWAY_SERVICE_NAME` | All | Auto | Service identifier |
+| `RAILWAY_PROJECT_NAME` | All | Auto | Project name |
+| `NODE_ENV` | All | Manual | Set to `production` |
+| `NEXTAUTH_SECRET` | Web | Manual | Generate with openssl |
+| `NEXTAUTH_URL` | Web | Manual | Your Railway domain |
+| `JWT_SECRET` | API | Manual | Generate with openssl |
+| `API_URL` | Web | Manual | API service URL |
+
+#### Step 5: Database Migrations
+
+```bash
+# Run migrations (one-time or in CI/CD)
+railway run --service api npx prisma migrate deploy
+
+# Or connect to Railway shell
+railway connect api
+# Then run: npx prisma migrate deploy
+
+# Seed initial data (optional)
+railway run --service api npx prisma db seed
+```
+
+**Auto-migration on deploy (add to API start script):**
+
+```json
+// apps/api/package.json
+{
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run db:migrate && node dist/index.js",
+    "db:migrate": "cd ../../packages/database && npx prisma migrate deploy"
+  }
+}
+```
+
+#### Step 6: Deploy
+
+```bash
+# Deploy all services
 railway up
 
-# 6. View logs
+# Deploy specific service
+railway up --service web
+railway up --service api
+
+# Deploy from GitHub integration (recommended for production)
+# Railway auto-deploys on git push when GitHub integration is enabled
+```
+
+#### Step 7: Custom Domain (Optional)
+
+```bash
+# Add custom domain to web service
+railway domain add web --domain app.mmf.com.my
+
+# Add custom domain to API service
+railway domain add api --domain api.mmf.com.my
+
+# Update environment variables with new domains
+railway variables -s web set NEXTAUTH_URL="https://app.mmf.com.my"
+railway variables -s web set API_URL="https://api.mmf.com.my"
+```
+
+#### Step 8: Monitoring & Logs
+
+```bash
+# View all service logs
 railway logs
 
-# 7. Open deployed app
-railway open
+# View specific service logs
+railway logs --service web
+railway logs --service api
+
+# Follow logs in real-time
+railway logs --follow
+
+# View deployment status
+railway status
 ```
+
+#### Railway Deployment Checklist
+
+- [ ] Railway CLI installed and logged in
+- [ ] Project initialized on Railway
+- [ ] PostgreSQL plugin added (`DATABASE_URL` available)
+- [ ] Redis plugin added (`REDIS_URL` available)
+- [ ] Web service environment variables set
+- [ ] API service environment variables set
+- [ ] Secrets generated (`NEXTAUTH_SECRET`, `JWT_SECRET`)
+- [ ] Database migrations run
+- [ ] Initial deployment successful
+- [ ] Health checks passing
+- [ ] Custom domain configured (if needed)
+- [ ] GitHub auto-deploy enabled (recommended)
+
+### 13.3 Docker Deployment (Self-Hosted)
+
+For self-hosted or on-premise deployments using Docker.
 
 ### 13.4 Environment Variables Reference
 
-| Variable | Service | Required | Description | Example |
-|----------|---------|----------|-------------|---------|
-| `DATABASE_URL` | All | ✓ | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
-| `REDIS_URL` | All | ✓ | Redis connection string | `redis://localhost:6379` |
-| `NEXTAUTH_SECRET` | Web | ✓ | NextAuth encryption key | 32-byte base64 |
-| `NEXTAUTH_URL` | Web | ✓ | Base URL for callbacks | `https://app.example.com` |
-| `JWT_SECRET` | API | ✓ | JWT signing secret | 32-byte base64 |
-| `API_URL` | Web | - | Internal API URL | `http://api:3001` |
-| `PORT` | API | - | API server port | `3001` |
-| `NODE_ENV` | All | ✓ | Environment mode | `production` |
-| `LOG_LEVEL` | All | - | Winston log level | `info` |
-| `UPLOAD_DIR` | API | - | File upload path | `/app/uploads` |
-| `MAX_FILE_SIZE` | API | - | Upload limit (bytes) | `52428800` (50MB) |
-| `RATE_LIMIT_WINDOW_MS` | API | - | Rate limit window | `60000` |
-| `RATE_LIMIT_MAX` | API | - | Requests per window | `100` |
-| `IRBM_API_KEY` | API | - | MyInvois API key | `live_xxx` |
-| `IRBM_API_URL` | API | - | MyInvois endpoint | `https://api.myinvois...` |
+#### Railway-Provisioned Variables (Auto-Injected)
+
+These variables are automatically provided by Railway when you add the respective plugins:
+
+| Variable | Service | Source | Description |
+|----------|---------|--------|-------------|
+| `DATABASE_URL` | All | PostgreSQL Plugin | Full PostgreSQL connection string with SSL |
+| `REDIS_URL` | All | Redis Plugin | Full Redis connection string |
+| `RAILWAY_STATIC_URL` | Web | Railway | CDN URL for static assets |
+| `RAILWAY_SERVICE_NAME` | All | Railway | Current service name (e.g., "web", "api") |
+| `RAILWAY_PROJECT_NAME` | All | Railway | Project name |
+| `RAILWAY_ENVIRONMENT_NAME` | All | Railway | Environment (e.g., "production") |
+| `RAILWAY_SERVICE_DOMAIN` | All | Railway | Service-specific domain |
+| `PORT` | All | Railway | Dynamic port assigned by Railway (use this!) |
+
+#### Required Manual Configuration
+
+| Variable | Service | Required | Description | How to Generate |
+|----------|---------|----------|-------------|-----------------|
+| `NODE_ENV` | All | ✓ | Must be `production` | Manual |
+| `NEXTAUTH_SECRET` | Web | ✓ | NextAuth.js encryption | `openssl rand -base64 32` |
+| `NEXTAUTH_URL` | Web | ✓ | Full app URL | Your Railway/custom domain |
+| `JWT_SECRET` | API | ✓ | JWT signing secret | `openssl rand -base64 32` |
+| `API_URL` | Web | ✓ | API service URL | Railway API service domain |
+
+#### Optional Configuration
+
+| Variable | Service | Default | Description |
+|----------|---------|---------|-------------|
+| `LOG_LEVEL` | All | `info` | Winston logging level |
+| `UPLOAD_DIR` | API | `/tmp` | File upload directory |
+| `MAX_FILE_SIZE` | API | `52428800` | Max upload size (50MB) |
+| `RATE_LIMIT_WINDOW_MS` | API | `60000` | Rate limit window (ms) |
+| `RATE_LIMIT_MAX` | API | `100` | Max requests per window |
+| `IRBM_API_KEY` | API | - | MyInvois API key |
+| `IRBM_API_URL` | API | - | MyInvois endpoint |
+| `WEB_CONCURRENCY` | All | - | Worker processes (Railway sets this) |
+
+#### Railway Environment Variable Commands
+
+```bash
+# List all variables
+railway variables
+
+# List variables for specific service
+railway variables -s web
+railway variables -s api
+
+# Set variable
+railway variables set KEY=value
+
+# Set variable for specific service
+railway variables -s api set JWT_SECRET=$(openssl rand -base64 32)
+
+# Set multiple variables
+railway variables set \
+  NODE_ENV=production \
+  LOG_LEVEL=info
+
+# Get variable value
+railway variables get NEXTAUTH_SECRET
+
+# Delete variable
+railway variables delete OLD_VAR
+
+# Copy variables between environments
+railway variables --environment staging copy production
+```
 
 ### 13.5 Database Migration Strategy
 
@@ -2679,7 +2809,79 @@ npx prisma migrate resolve --rolled-back migration_name
 npx prisma migrate resolve --applied migration_name
 ```
 
-### D.4 Performance Tuning
+### D.4 Railway-Specific Troubleshooting
+
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| **Build fails** | Missing build command | Verify `railway.json` or set build command in Railway dashboard |
+| **Service won't start** | Port binding issue | Use `PORT` env var (Railway assigns dynamically), not hardcoded port |
+| **Database connection fails** | SSL requirement | Railway Postgres requires SSL; ensure `?sslmode=require` in connection |
+| **Migrations not running** | Missing migrate step | Add `prisma migrate deploy` to start command or Procfile |
+| **High memory usage** | Default Node memory | Set `NODE_OPTIONS=--max-old-space-size=4096` |
+| **Cold start delays** | Free tier limitations | Upgrade to Pro for persistent deployment |
+| **Environment variables not loading** | Wrong service context | Use `railway variables -s servicename` to verify scope |
+| **Webhook/URL incorrect** | Wrong domain | Check `RAILWAY_SERVICE_DOMAIN` or set custom domain |
+| **File uploads fail** | Ephemeral filesystem | Use external storage (S3/Cloudflare R2) for persistent files |
+| **CORS errors** | Wrong origin | Update `NEXTAUTH_URL` to match actual deployed domain |
+
+#### Railway CLI Debug Commands
+
+```bash
+# Check service status
+railway status
+
+# View detailed service info
+railway service
+
+# Check environment variables
+railway variables
+
+# Connect to service shell
+railway connect api
+
+# Run command in service context
+railway run --service api npx prisma migrate status
+
+# View deployment logs
+railway logs --deployment-id <id>
+
+# Redeploy without git push
+railway up --service web --detach
+```
+
+#### Railway Common Configuration Issues
+
+**Issue: Application binds to wrong port**
+```javascript
+// ❌ Wrong - Hardcoded port
+app.listen(3001);
+
+// ✅ Correct - Use Railway's PORT
+app.listen(process.env.PORT || 3001);
+```
+
+**Issue: Database SSL connection fails**
+```javascript
+// ✅ Correct - Enable SSL for Railway Postgres
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL + '?sslmode=require'
+    }
+  }
+});
+```
+
+**Issue: NextAuth URL mismatch**
+```bash
+# Ensure NEXTAUTH_URL matches your Railway domain
+railway variables -s web set NEXTAUTH_URL="https://web-production-xxx.up.railway.app"
+
+# Or for custom domain
+railway variables -s web set NEXTAUTH_URL="https://app.mmf.com.my"
+```
+
+### D.5 Performance Tuning
 
 ```sql
 -- Analyze table statistics
@@ -2758,7 +2960,9 @@ ORDER BY seq_tup_read DESC;
 | **ESB** | Enterprise Service Bus - integration middleware |
 | **JWT** | JSON Web Token - authentication token format |
 | **MFA** | Multi-Factor Authentication |
+| **Nixpacks** | Railway's build system (alternative to Docker) |
 | **ORM** | Object-Relational Mapping (Prisma) |
+| **Railway** | Cloud platform for deploying applications |
 | **RBAC** | Role-Based Access Control |
 | **REST** | Representational State Transfer - API architecture |
 | **RTO** | Recovery Time Objective - disaster recovery metric |
