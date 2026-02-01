@@ -19,6 +19,9 @@ import {
   ChevronDown,
   MapPin,
   FileText,
+  CreditCard,
+  BarChart3,
+  CheckCircle,
 } from 'lucide-react'
 
 interface DashboardLayoutProps {
@@ -73,9 +76,15 @@ const menuItems = [
     href: '/fms',
     icon: DollarSign,
     submenu: [
+      { name: 'Dashboard', href: '/fms', icon: LayoutDashboard },
+      { name: 'Customers', href: '/fms/customers', icon: Users },
+      { name: 'Vendors', href: '/fms/vendors', icon: Users },
       { name: 'Invoices', href: '/fms/invoices', icon: FileText },
-      { name: 'Payments', href: '/fms/payments', icon: DollarSign },
-      { name: 'Accounting', href: '/fms/accounting', icon: FileText },
+      { name: 'Payments', href: '/fms/payments', icon: CreditCard },
+      { name: 'Chart of Accounts', href: '/fms/chart-of-accounts', icon: BarChart3 },
+      { name: 'Journal Entries', href: '/fms/journal-entries', icon: FileText },
+      { name: 'Fixed Assets', href: '/fms/fixed-assets', icon: DollarSign },
+      { name: 'e-Invoicing', href: '/fms/e-invoicing', icon: CheckCircle },
     ],
   },
   { name: 'Settings', href: '/settings', icon: Settings },
